@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en-us">
+<html lang="ko">
   <head>
     <base href="https://cdn.jsdelivr.net/gh/web-ports/clover-pit@main/">
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity Web Player | CloverPit</title>
+    <title>클로버핏 (CloverPit)</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
   </head>
   <body>
     <div id="loading-text"
-    style="color: white; font-size: 48px; font-family: cursive; text-align: center; margin-top: 20px;"> LOADING...
+    style="color: white; font-size: 48px; font-family: cursive; text-align: center; margin-top: 20px;"> 로딩 중...
   </div>
     <div id="unity-container">
       <canvas id="unity-canvas" width=960 height=540 tabindex="-1"></canvas>
@@ -43,7 +43,7 @@
         chunks.push(value);
         let mbDone = (loadedBytes / (1024 * 1024)).toFixed(2);
         let mbTotal = '86.96';
-        loadingText.textContent = `LOADING... ${mbDone} MB / ${mbTotal} MB`;
+        loadingText.textContent = `로딩 중... ${mbDone} MB / ${mbTotal} MB`;
       }
       let fullBuffer = new Uint8Array(received);
       let offset = 0;
@@ -132,8 +132,8 @@
         }).catch((message) => {
         });
       };
-    });
       document.body.appendChild(script);
+    })();
     </script>
   </body>
 </html>
