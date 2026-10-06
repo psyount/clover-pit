@@ -7,6 +7,35 @@
     <title>클로버핏 (CloverPit)</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <style>
+      html, body { background: #000; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+      #loading-text { position: fixed; top: 0; left: 0; right: 0; z-index: 10; pointer-events: none; }
+      #unity-container { top: 0; left: 0; }
+      #unity-canvas { display: block; touch-action: none; }
+      #touch-ui { display: none; }
+      #touch-ui.on { display: block; }
+      .tbtn { position: fixed; z-index: 20; display: flex; align-items: center; justify-content: center;
+        width: 52px; height: 52px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35);
+        background: rgba(0,0,0,.25); color: rgba(255,255,255,.75); font: bold 15px sans-serif;
+        touch-action: none; -webkit-tap-highlight-color: transparent; }
+      .tbtn.down { background: rgba(255,255,255,.35); }
+      .tbtn.small { width: 44px; height: 32px; border-radius: 8px; font-size: 13px; }
+      #touch-ui.hidden .tbtn:not(#tb-toggle) { display: none; }
+      /* 게임 대사창(화면 아래쪽)을 가리지 않도록 화면 세로 가운데에 배치 */
+      #tb-w { left: calc(env(safe-area-inset-left) + 66px); top: calc(50% - 84px); }
+      #tb-a { left: calc(env(safe-area-inset-left) + 12px); top: calc(50% - 30px); }
+      #tb-s { left: calc(env(safe-area-inset-left) + 66px); top: calc(50% + 24px); }
+      #tb-d { left: calc(env(safe-area-inset-left) + 120px); top: calc(50% - 30px); }
+      #tb-space { right: calc(env(safe-area-inset-right) + 12px); top: calc(50% - 84px); width: 60px; height: 60px; }
+      #tb-back { right: calc(env(safe-area-inset-right) + 16px); top: calc(50% + 4px); }
+      #tb-esc { right: calc(env(safe-area-inset-right) + 12px); top: 12px; }
+      #tb-full { right: calc(env(safe-area-inset-right) + 64px); top: 12px; }
+      #tb-toggle { right: calc(env(safe-area-inset-right) + 116px); top: 12px; }
+      #rotate-hint { display: none; position: fixed; left: 0; right: 0; top: 40%; z-index: 30; text-align: center;
+        color: #fff; font: bold 18px sans-serif; text-shadow: 0 0 6px #000; pointer-events: none; }
+      @media (orientation: portrait) { #touch-ui.on ~ #rotate-hint { display: block; } }
+    </style>
   </head>
   <body>
     <div id="loading-text"
@@ -22,7 +51,166 @@
       </div>
       <div id="unity-warning"> </div>
     </div>
+    <!-- 모바일 터치 조작: 드래그 = 마우스 이동(시점/커서), 탭 = 클릭, 두 손가락 탭 = 우클릭, 길게 누르기 = 클릭 유지 -->
+    <div id="touch-ui">
+      <div class="tbtn" id="tb-w" data-key="w">W</div>
+      <div class="tbtn" id="tb-a" data-key="a">A</div>
+      <div class="tbtn" id="tb-s" data-key="s">S</div>
+      <div class="tbtn" id="tb-d" data-key="d">D</div>
+      <div class="tbtn" id="tb-space" data-key=" ">확인</div>
+      <div class="tbtn" id="tb-back" data-mouse="2">뒤로</div>
+      <div class="tbtn small" id="tb-esc" data-key="Escape">메뉴</div>
+      <div class="tbtn small" id="tb-full">전체</div>
+      <div class="tbtn small" id="tb-toggle">숨김</div>
+    </div>
+    <div id="rotate-hint">화면을 가로로 돌려주세요</div>
     <script>
+    // ---- 모바일 터치 조작 ----
+    // 이 게임은 마우스의 상대 이동량(movementX/Y)으로 시점과 커서를 움직이므로
+    // 터치를 상대 이동 마우스 이벤트로 변환한다 (트랙패드 방식).
+    var isTouchDevice = (navigator.maxTouchPoints > 0 && window.matchMedia("(pointer: coarse)").matches) ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    (function () {
+      if (!isTouchDevice) return;
+      var SENS = 1.2;          // 드래그 감도 (1이면 커서가 손가락과 거의 같은 거리만큼 움직임)
+      var TAP_MOVE = 10;       // 이 픽셀 이하로 움직이면 탭으로 본다
+      var TAP_TIME = 300;      // ms
+      var HOLD_TIME = 450;     // 움직이지 않고 이 시간 이상 누르면 클릭 유지
+      var canvas = null;
+      var ui = document.getElementById("touch-ui");
+      ui.classList.add("on");
+
+      function getCanvas() { return canvas || (canvas = document.getElementById("unity-canvas")); }
+      function nextFrame(n) {
+        return new Promise(function (r) {
+          (function f() { if (--n < 0) r(); else requestAnimationFrame(f); })();
+        });
+      }
+      function mouse(type, button, dx, dy) {
+        var c = getCanvas(), rect = c.getBoundingClientRect();
+        var init = { bubbles: true, cancelable: true, view: window, button: button || 0,
+          buttons: type === "mouseup" ? 0 : (button === 2 ? 2 : 1),
+          clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2,
+          movementX: dx || 0, movementY: dy || 0 };
+        if (type === "mousemove") init.buttons = heldButton === null ? 0 : (heldButton === 2 ? 2 : 1);
+        c.dispatchEvent(new MouseEvent(type, init));
+        if (type === "mouseup") document.dispatchEvent(new MouseEvent(type, init));
+      }
+      function key(type, k) {
+        var map = { w: ["KeyW", 87], a: ["KeyA", 65], s: ["KeyS", 83], d: ["KeyD", 68], " ": ["Space", 32], Escape: ["Escape", 27] };
+        var m = map[k];
+        window.dispatchEvent(new KeyboardEvent(type, { key: k, code: m[0], keyCode: m[1], which: m[1], bubbles: true, cancelable: true }));
+      }
+
+      // 유니티는 프레임당 마지막 이동량만 읽으므로, 이동량을 모아 프레임마다 한 번씩 보낸다
+      var accX = 0, accY = 0, heldButton = null;
+      (function flush() {
+        var dx = Math.round(accX), dy = Math.round(accY);
+        if (dx || dy) { accX -= dx; accY -= dy; mouse("mousemove", 0, dx, dy); }
+        requestAnimationFrame(flush);
+      })();
+
+      async function click(button) {
+        mouse("mousedown", button);
+        await nextFrame(3);
+        mouse("mouseup", button);
+      }
+
+      // 캔버스 위 터치: 유니티 자체 터치 처리를 막고 마우스로 변환
+      var touches = {}, maxFingers = 0, holdTimer = null;
+      function onCanvas(e) { return e.target === getCanvas(); }
+      window.addEventListener("touchstart", function (e) {
+        if (!onCanvas(e)) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        getCanvas().focus();
+        for (var i = 0; i < e.changedTouches.length; i++) {
+          var t = e.changedTouches[i];
+          touches[t.identifier] = { x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, time: Date.now(), moved: false };
+        }
+        var n = Object.keys(touches).length;
+        maxFingers = Math.max(maxFingers, n);
+        clearTimeout(holdTimer);
+        if (n === 1) {
+          holdTimer = setTimeout(function () {
+            var ids = Object.keys(touches);
+            if (ids.length === 1 && !touches[ids[0]].moved && heldButton === null) {
+              heldButton = 0; mouse("mousedown", 0);
+            }
+          }, HOLD_TIME);
+        }
+      }, { capture: true, passive: false });
+
+      window.addEventListener("touchmove", function (e) {
+        if (!onCanvas(e)) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        for (var i = 0; i < e.changedTouches.length; i++) {
+          var t = e.changedTouches[i], s = touches[t.identifier];
+          if (!s) continue;
+          if (Math.abs(t.clientX - s.sx) > TAP_MOVE || Math.abs(t.clientY - s.sy) > TAP_MOVE) s.moved = true;
+          // 첫 번째 손가락만 커서/시점을 움직인다
+          if (+t.identifier === +Object.keys(touches)[0] && s.moved) {
+            // 유니티가 이동량에 캔버스 배율(devicePixelRatio)을 곱하므로 나눠서 보정
+            var k = SENS / (window.unityDevicePixelRatio || 1);
+            accX += (t.clientX - s.x) * k;
+            accY += (t.clientY - s.y) * k;
+          }
+          s.x = t.clientX; s.y = t.clientY;
+        }
+      }, { capture: true, passive: false });
+
+      function onEnd(e) {
+        if (!onCanvas(e)) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        var tapped = false;
+        for (var i = 0; i < e.changedTouches.length; i++) {
+          var t = e.changedTouches[i], s = touches[t.identifier];
+          if (!s) continue;
+          if (!s.moved && Date.now() - s.time < TAP_TIME) tapped = true;
+          delete touches[t.identifier];
+        }
+        clearTimeout(holdTimer);
+        if (Object.keys(touches).length > 0) return;
+        if (heldButton !== null) { mouse("mouseup", heldButton); heldButton = null; }
+        else if (e.type === "touchend" && tapped) click(maxFingers >= 2 ? 2 : 0);
+        maxFingers = 0;
+      }
+      window.addEventListener("touchend", onEnd, { capture: true, passive: false });
+      window.addEventListener("touchcancel", onEnd, { capture: true, passive: false });
+
+      // 화면 버튼
+      ui.querySelectorAll(".tbtn").forEach(function (b) {
+        b.addEventListener("touchstart", function (e) {
+          e.preventDefault();
+          b.classList.add("down");
+          if (b.dataset.key) key("keydown", b.dataset.key);
+          else if (b.dataset.mouse) mouse("mousedown", +b.dataset.mouse);
+        }, { passive: false });
+        function up(e) {
+          e.preventDefault();
+          if (!b.classList.contains("down")) return;
+          b.classList.remove("down");
+          if (b.dataset.key) key("keyup", b.dataset.key);
+          else if (b.dataset.mouse) mouse("mouseup", +b.dataset.mouse);
+          else if (b.id === "tb-toggle") {
+            ui.classList.toggle("hidden");
+            b.textContent = ui.classList.contains("hidden") ? "버튼" : "숨김";
+          } else if (b.id === "tb-full") {
+            var el = document.documentElement;
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+              (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+            } else {
+              var req = el.requestFullscreen || el.webkitRequestFullscreen;
+              if (req) Promise.resolve(req.call(el)).then(function () {
+                if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {});
+              }).catch(function () {});
+            }
+          }
+        }
+        b.addEventListener("touchend", up, { passive: false });
+        b.addEventListener("touchcancel", up, { passive: false });
+      });
+    })();
+
       var loadingText = document.querySelector("#loading-text");
     let totalBytes = 0;
     let loadedBytes = 0;
@@ -111,12 +299,9 @@
       // the canvas DOM size and WebGL render target sizes yourself.
       // config.matchWebGLToCanvasSize = false;
 
-      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
-        var meta = document.createElement('meta');
-        meta.name = 'viewport';
-        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
-        document.getElementsByTagName('head')[0].appendChild(meta);
+      if (isTouchDevice) {
+        // 고해상도 휴대폰에서 렌더링 부담을 줄인다
+        config.devicePixelRatio = window.unityDevicePixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
       }
 
 
@@ -129,6 +314,7 @@
           progressBarFull.style.width = 100 * progress + "%";
         }).then((unityInstance) => {
           loadingBar.style.display = "none";
+          loadingText.style.display = "none";
         }).catch((message) => {
         });
       };
