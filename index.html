@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
   <head>
-    <base href="https://cdn.jsdelivr.net/gh/web-ports/clover-pit@main/">
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>클로버핏 (CloverPit)</title>
@@ -230,7 +229,7 @@
         loadedBytes += value.length;
         chunks.push(value);
         let mbDone = (loadedBytes / (1024 * 1024)).toFixed(2);
-        let mbTotal = '86.96';
+        let mbTotal = '87.13';
         loadingText.textContent = `로딩 중... ${mbDone} MB / ${mbTotal} MB`;
       }
       let fullBuffer = new Uint8Array(received);
